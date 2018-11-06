@@ -38,7 +38,10 @@ public class VideoDecoder {
 
             byte [] dataSources = null;
             if(mVideoEncoder != null) {
-                dataSources = mVideoEncoder.pollFrameFromEncoder();
+
+
+               dataSources = mVideoEncoder.pollFrameFromEncoder();
+
             }
             int length = 0;
             if(dataSources != null) {

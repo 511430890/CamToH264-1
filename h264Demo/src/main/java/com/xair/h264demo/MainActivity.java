@@ -6,12 +6,14 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 import android.app.Activity;
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.os.Bundle;
-import android.os.Environment;
 import android.util.Log;
 import android.view.SurfaceView;
 import android.view.View;
@@ -20,11 +22,8 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity {
 
-	//private String h264Path = "/storage/emulated/0/single_720.bin";
-//	private File h264File = new File(rootpath+h264Path);
-	//private String h264Path =  "/storage/emulated/0/8610.h264";
-    private String h264Path =  "/storage/emulated/0/720pq.h264";
-	private String rootpath = Environment.getExternalStorageDirectory().getAbsolutePath();  //璺緞
+	private String h264Path =  "/storage/emulated/0/n1080.h264";
+	//private String h264Path =  "/storage/emulated/0/single_720.bin";
 	private File h264File = new File(h264Path);
 	private InputStream is = null;
 	private FileInputStream fs = null;
@@ -38,11 +37,13 @@ public class MainActivity extends Activity {
 
 	// Video Constants
 	private final static String MIME_TYPE = "video/avc"; // H.264 Advanced Video
-	private final static int VIDEO_WIDTH = 1280;
-	private final static int VIDEO_HEIGHT = 720;
+	private final static int VIDEO_WIDTH = 720;
+	private final static int VIDEO_HEIGHT = 576;
 	private final static int TIME_INTERNAL = 30;
-	//private final static int HEAD_OFFSET = 512;
-    private final static int HEAD_OFFSET = 0;
+	//为了找到I帧结尾？HEAD_OFFSET设置偏移那么大
+	private final static int HEAD_OFFSET = 512;
+	//private final static int HEAD_OFFSET = 0;
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -68,6 +69,7 @@ public class MainActivity extends Activity {
 				}
 			}
 		});
+		//getSupportColorFormat();
 	}
 
 	@Override
@@ -92,6 +94,15 @@ public class MainActivity extends Activity {
 		mCodec = MediaCodec.createDecoderByType(MIME_TYPE);
 		MediaFormat mediaFormat = MediaFormat.createVideoFormat(MIME_TYPE,
 				VIDEO_WIDTH, VIDEO_HEIGHT);
+		mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE,20);
+		mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE,15);
+		//mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar);
+//		byte[] header_sps = {0, 0, 0, 1, 103, 66, 0 , 41, -115, -115, 64, 80 , 30 , -48 , 15 ,8,-124, 83, -128};
+//
+//		byte[] header_pps = {0,0 ,0, 1, 104, -54, 67, -56};
+//
+//		mediaFormat.setByteBuffer("csd-0", ByteBuffer.wrap(header_sps));
+//		mediaFormat.setByteBuffer("csd-1", ByteBuffer.wrap(header_pps));
 		mCodec.configure(mediaFormat, mSurfaceView.getHolder().getSurface(),
 				null, 0);
 		mCodec.start();
@@ -106,7 +117,7 @@ public class MainActivity extends Activity {
 		ByteBuffer[] inputBuffers = mCodec.getInputBuffers();
 		int inputBufferIndex = mCodec.dequeueInputBuffer(100);
 
-		Log.e("Media", "onFrame index:" + inputBufferIndex);
+		Log.e("Media", "onFrame index:-------inputBufferIndex=" + inputBufferIndex);
 		if (inputBufferIndex >= 0) {
 			ByteBuffer inputBuffer = inputBuffers[inputBufferIndex];
 			inputBuffer.clear();
@@ -120,8 +131,10 @@ public class MainActivity extends Activity {
 
 		// Get output buffer index
 		MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
-		int outputBufferIndex = mCodec.dequeueOutputBuffer(bufferInfo, 100);
+		int outputBufferIndex = mCodec.dequeueOutputBuffer(bufferInfo, 10000);
 		while (outputBufferIndex >= 0) {
+			Log.e("Media", "onFrame index:-------OUTputBufferIndex=" + outputBufferIndex);
+			Log.e("Media", "onFrame -----bufferInfo " + bufferInfo.flags);
 			mCodec.releaseOutputBuffer(outputBufferIndex, true);
 			outputBufferIndex = mCodec.dequeueOutputBuffer(bufferInfo, 0);
 		}
@@ -159,7 +172,7 @@ public class MainActivity extends Activity {
 	static boolean checkHead(byte[] buffer, int offset) {
 		// 00 00 00 01
 		if (buffer[offset] == 0 && buffer[offset + 1] == 0
-				&& buffer[offset + 2] == 0 && buffer[offset +3] == 1)
+				&& buffer[offset + 2] == 0 && buffer[offset+3] == 1)
 			return true;
 		// 00 00 01
 		if (buffer[offset] == 0 && buffer[offset + 1] == 0
@@ -188,7 +201,6 @@ public class MainActivity extends Activity {
 					int length = is.available();
 					if (length > 0) {
 						// Read file and fill buffer
-                        Log.i("length", "" + length);
 						int count = is.read(buffer);
 						Log.i("count", "" + count);
 						h264Read += count;
@@ -199,7 +211,6 @@ public class MainActivity extends Activity {
 							System.arraycopy(buffer, 0, framebuffer,
 									frameOffset, count);
 							frameOffset += count;
-                            Log.d("frameOffset", "frameOffset"+frameOffset);
 						} else {
 							frameOffset = 0;
 							System.arraycopy(buffer, 0, framebuffer,
@@ -211,16 +222,19 @@ public class MainActivity extends Activity {
 						int offset = findHead(framebuffer, frameOffset);
 						Log.i("find head", " Head:" + offset);
 						while (offset > 0) {
-							if (checkHead(framebuffer, offset)) {
-								// Fill decoder
-								boolean flag = onFrame(framebuffer, offset, h264Read-offset);
+							if (checkHead(framebuffer, 0)) {
+//								// Fill decoder
+								//第一次把I帧包括AUD，SPS，PPS都放进去了。
+								boolean flag = onFrame(framebuffer, 0, offset);
 								if (flag) {
 									byte[] temp = framebuffer;
 									framebuffer = new byte[200000];
+									//把framebuffer减去存在缓冲区那一帧后，再作为一个新帧送到缓冲区
 									System.arraycopy(temp, offset, framebuffer,
 											0, frameOffset - offset);
+									//减去后，这个帧数组总大小就少了offset个
 									frameOffset -= offset;
-									Log.e("Check", "is Head:" + offset);
+									Log.e("Check", "is Head:" + offset+"frameOffset"+frameOffset);
 									// Continue finding head
 									offset = findHead(framebuffer, frameOffset);
 								}
@@ -236,7 +250,6 @@ public class MainActivity extends Activity {
 						frameOffset = 0;
 						readFlag = false;
 						// Start a new thread
-                        Log.d("read length", "read length = 0"+length);
 						readFileThread = new Thread(readFile);
 						readFileThread.start();
 					}
@@ -253,4 +266,49 @@ public class MainActivity extends Activity {
 			}
 		}
 	};
+	private int getSupportColorFormat() {
+		int numCodecs = MediaCodecList.getCodecCount();
+		MediaCodecInfo codecInfo = null;
+		for (int i = 0; i < numCodecs && codecInfo == null; i++) {
+			MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
+			if (!info.isEncoder()) {
+				continue;
+			}
+			String[] types = info.getSupportedTypes();
+			boolean found = false;
+			for (int j = 0; j < types.length && !found; j++) {
+				if (types[j].equals("video/avc")) {
+					System.out.println("found");
+					found = true;
+				}
+			}
+			if (!found)
+				continue;
+			codecInfo = info;
+		}
+
+		Log.e("AvcEncoder", "Found " + codecInfo.getName() + " supporting " + "video/avc");
+
+		// Find a color profile that the codec supports
+		MediaCodecInfo.CodecCapabilities capabilities = codecInfo.getCapabilitiesForType("video/avc");
+		Log.e("AvcEncoder",
+				"length-" + capabilities.colorFormats.length + "==" + Arrays.toString(capabilities.colorFormats));
+
+		for (int i = 0; i < capabilities.colorFormats.length; i++) {
+
+			switch (capabilities.colorFormats[i]) {
+				case MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar:
+				case MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar:
+//				case MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible:
+//					Log.e("AvcEncoder", "supported color format::" + capabilities.colorFormats[i]);
+//					break;
+
+				default:
+					Log.e("AvcEncoder", "other color format " + capabilities.colorFormats[i]);
+					break;
+			}
+		}
+		//return capabilities.colorFormats[i];
+		return 0;
+	}
 }

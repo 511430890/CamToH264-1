@@ -45,6 +45,7 @@ public class VideoEncoder {
                     inputBuffer.put(dataSources);
                     length = dataSources.length;
                 }
+                //Log.e(TAG, "onInputBufferAvailable: "+id );
                 mediaCodec.queueInputBuffer(id,0, length,0,0);
             }
 
@@ -55,10 +56,10 @@ public class VideoEncoder {
                 if(outputBuffer != null && bufferInfo.size > 0){
                     byte [] buffer = new byte[outputBuffer.remaining()];
                     outputBuffer.get(buffer);
-                    boolean result = mOutputDatasQueue.offer(buffer);
-                    if(!result){
-                        Log.d(TAG, "Offer to queue failed, queue in full state");
-                    }
+//                    boolean result = mOutputDatasQueue.offer(buffer);
+//                    if(!result){
+//                        Log.d(TAG, "Offer to queue failed, queue in full state");
+//                    }
                 }
                 mMediaCodec.releaseOutputBuffer(id, true);
             }
@@ -112,6 +113,10 @@ public class VideoEncoder {
         public byte [] pollFrameFromEncoder(){
             return mOutputDatasQueue.poll();
         }
+    public boolean pollH264tobuffer(byte [] buffer){
+        return mOutputDatasQueue.offer(buffer);
+    }
+
 
         /**
          * start the MediaCodec to encode video data
